@@ -1,0 +1,16 @@
+{
+  "name": "single-company-store",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend_user",
+    "frontend_dashboard"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace backend",
+    "dev:storefront": "npm run dev --workspace frontend_user",
+    "dev:admin": "npm run dev --workspace frontend_dashboard",
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present"
+  }
+}

@@ -109,7 +109,8 @@ connection string suitable for a long-lived Node.js process.
 ## API overview
 
 All endpoints are under `/api/v1`. The public API provides `GET /categories`,
-`GET /products`, and `GET /products/:slug`. Customer bearer authentication is required for
+`GET /products`, `GET /products/:slug`, and best-effort `POST /analytics/events` ingestion.
+Customer bearer authentication is required for
 `POST /checkout`, `GET /payments/:reference/verify`, `/customer/profile`,
 `/customer/profile/avatar`, `/customer/orders`, and `/customer/orders/:orderReference`.
 Paystack calls `POST /webhooks/paystack`.
@@ -117,9 +118,21 @@ Paystack calls `POST /webhooks/paystack`.
 All `/admin/*` routes require a valid Supabase bearer token and an entry in `admin_users`.
 They provide dashboard statistics, product/category CRUD, product-image upload/deletion,
 low-stock inventory lookup and updates, order listing/details/status transitions, and customer
-order history.
+order history. `GET /admin/analytics?range=today|7d|30d|90d|all` returns storefront engagement,
+checkout funnel, payment outcomes, trends, and product performance.
 The separate admin origin receives no special trust from the API: CORS is restricted to the
 configured origins, while authorization is performed for every admin request.
+
+Storefront analytics are first-party and opt-out: product views, cart additions/removals, and
+cart views use an anonymous per-tab session ID, with repeated product/cart views deduplicated
+within 30 minutes. Customers can opt out from the storefront footer; opted-out activity is not
+assigned an analytics session. Signed-in events may be associated with the verified Supabase
+user ID; analytics do not store names, email addresses, IP addresses, or arbitrary page data.
+Checkout-page starts are measured as interaction events and reconciled with server-created
+orders; unsubmitted starts are marked abandoned after 30 minutes, while expired unpaid
+reservations are tracked separately from verified Paystack cancellations. Payment attempts and
+outcomes come from server-side payment records, and purchased products come from paid order
+items. Analytics storage and reporting are separate from inventory and payment transactions.
 
 ## Payment and inventory behavior
 

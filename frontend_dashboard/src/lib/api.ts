@@ -1,6 +1,6 @@
 import { PUBLIC_API_URL } from '$env/static/public';
 import { supabase } from './supabase';
-import type { Category, CustomerOrderHistory, DashboardStats, Order, Product, ProductImage, ProductInput, SalesOverTime } from './types';
+import type { AnalyticsProductMetric, AnalyticsTrend, Category, CustomerOrderHistory, DashboardStats, Order, Product, ProductImage, ProductInput, SalesOverTime, StoreAnalytics } from './types';
 
 type Query = Record<string, string | number | boolean | undefined>;
 type ProductResponse = { product: Product };
@@ -144,6 +144,70 @@ function slugify(value: string) {
 }
 
 export const api = {
+  async analytics(range: StoreAnalytics['range']) {
+    const payload = await request<Record<string, unknown>>(
+      `/api/v1/admin/analytics${queryString({ range })}`
+    );
+    const metrics = payload.metrics as Record<string, unknown> | undefined;
+    const funnel = payload.funnel as Record<string, unknown> | undefined;
+    if (!metrics || !funnel || !Array.isArray(payload.trend)) {
+      throw new Error('Unexpected analytics response.');
+    }
+    const count = (value: Record<string, unknown>, key: string) => Number(value[key] ?? 0);
+    const normalizeProducts = (value: unknown): AnalyticsProductMetric[] => {
+      if (!Array.isArray(value)) return [];
+      return value.map((item) => {
+        const product = item as Record<string, unknown>;
+        return {
+          id: String(product.id ?? ''),
+          name: String(product.name ?? 'Product'),
+          views: Number(product.views ?? 0),
+          additions: Number(product.additions ?? 0),
+          purchases: Number(product.purchases ?? 0)
+        };
+      });
+    };
+    return {
+      range,
+      metrics: {
+        product_views: count(metrics, 'product_views'),
+        product_view_sessions: count(metrics, 'product_view_sessions'),
+        cart_additions: count(metrics, 'cart_additions'),
+        cart_add_sessions: count(metrics, 'cart_add_sessions'),
+        cart_removals: count(metrics, 'cart_removals'),
+        cart_views: count(metrics, 'cart_views'),
+        checkout_starts: count(metrics, 'checkout_starts'),
+        checkout_sessions: count(metrics, 'checkout_sessions'),
+        abandoned_checkouts: count(metrics, 'abandoned_checkouts'),
+        abandoned_checkout_sessions: count(metrics, 'abandoned_checkout_sessions'),
+        payment_attempts: count(metrics, 'payment_attempts'),
+        payment_sessions: count(metrics, 'payment_sessions'),
+        payment_cancellations: count(metrics, 'payment_cancellations'),
+        payment_failures: count(metrics, 'payment_failures'),
+        successful_payments: count(metrics, 'successful_payments'),
+        orders_placed: count(metrics, 'orders_placed'),
+        purchase_sessions: count(metrics, 'purchase_sessions')
+      },
+      funnel: {
+        views: count(funnel, 'views'),
+        adds: count(funnel, 'adds'),
+        checkouts: count(funnel, 'checkouts'),
+        payments: count(funnel, 'payments'),
+        purchases: count(funnel, 'purchases')
+      },
+      trend: payload.trend.map((item) => {
+        const point = item as Record<string, unknown>;
+        return {
+          period: String(point.period ?? ''),
+          views: Number(point.views ?? 0),
+          additions: Number(point.additions ?? 0),
+          checkouts: Number(point.checkouts ?? 0),
+          purchases: Number(point.purchases ?? 0)
+        };
+      }) as AnalyticsTrend[],
+      productMetrics: normalizeProducts(payload.productMetrics)
+    };
+  },
   async dashboard() {
     const payload = await request<{ stats: DashboardStats; recentOrders: Order[]; salesOverTime: SalesOverTime[] }>('/api/v1/admin/dashboard');
     return {

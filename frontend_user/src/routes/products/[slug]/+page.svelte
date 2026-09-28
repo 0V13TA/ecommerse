@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { addToCart, formatPrice } from '$lib/cart';
+  import { trackStorefrontEvent } from '$lib/analytics';
   import type { Product } from '$lib/types';
 
   export let data: { product: Product | null; error: string | null };
@@ -8,8 +9,13 @@
   let product: Product | null;
   let image: string | null | undefined;
   let category: string | undefined;
+  let trackedProductId = '';
 
   $: product = data.product;
+  $: if (product && product.id !== trackedProductId) {
+    trackedProductId = product.id;
+    trackStorefrontEvent('product_view', product.id);
+  }
   $: image = product?.imageUrl || product?.image;
   $: category =
     product?.categoryName ||

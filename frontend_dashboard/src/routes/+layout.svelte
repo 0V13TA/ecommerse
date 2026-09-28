@@ -63,6 +63,7 @@
         <a class:active={current.startsWith('/categories')} href="/categories"><span class="nav-icon">◈</span>Categories</a>
         <a class:active={current.startsWith('/inventory')} href="/inventory"><span class="nav-icon">▤</span>Inventory</a>
         <a class:active={current.startsWith('/orders')} href="/orders"><span class="nav-icon">▣</span>Orders</a>
+        <a class:active={current.startsWith('/analytics')} href="/analytics"><span class="nav-icon">⌁</span>Analytics</a>
       </nav>
       <div class="sidebar-bottom">
         <div class="secure-note"><span class="secure-dot"></span><span><strong>Secure workspace</strong><small>Admin access only</small></span></div>

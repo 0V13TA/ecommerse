@@ -9,7 +9,7 @@ import { asyncHandler, HttpError, logError } from "./errors.js";
 import { createCheckout, processPayment } from "./commerce.js";
 import { isValidWebhookSignature } from "./paystack.js";
 import { requireAdmin } from "./auth.js";
-import { requireCustomer } from "./customer-auth.js";
+import { identifyCustomerIfPresent, requireCustomer } from "./customer-auth.js";
 import rateLimit from "express-rate-limit";
 
 const router = Router();
@@ -19,6 +19,13 @@ const checkoutLimiter = rateLimit({
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: { error: "Too many checkout attempts. Please try again later." }
+});
+const analyticsLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 90,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Too many analytics events. Please try again later." }
 });
 const storage = createClient(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false }
@@ -76,6 +83,25 @@ const customerProfileSchema = z.object({
   address: z.string().trim().min(3).max(300),
   city: z.string().trim().min(1).max(100),
   country: z.string().trim().min(2).max(100)
+});
+const analyticsEventBatchSchema = z.object({
+  sessionId: uuid,
+  events: z.array(z.object({
+    eventId: uuid,
+    name: z.enum(["product_view", "add_to_cart", "remove_from_cart", "cart_view", "checkout_started"]),
+    productId: uuid.nullable().optional()
+  })).min(1).max(20)
+}).superRefine((batch, context) => {
+  for (const [index, event] of batch.events.entries()) {
+    const requiresProduct = ["product_view", "add_to_cart", "remove_from_cart"].includes(event.name);
+    if (requiresProduct !== Boolean(event.productId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["events", index, "productId"],
+        message: requiresProduct ? "A product is required for this event" : "Cart view events cannot include a product"
+      });
+    }
+  }
 });
 
 async function ensureCustomer(userId: string, email: string, emailConfirmed: boolean) {
@@ -189,14 +215,61 @@ router.get("/products/:slug", asyncHandler(async (req, res) => {
   res.json({ product });
 }));
 
+router.post("/analytics/events", analyticsLimiter, identifyCustomerIfPresent, asyncHandler(async (req, res) => {
+  const input = analyticsEventBatchSchema.parse(req.body);
+  const productIds = [...new Set(input.events.flatMap((event) => event.productId ? [event.productId] : []))];
+  if (productIds.length) {
+    const products = await pool.query(
+      `select id from public.products where id = any($1::uuid[])`,
+      [productIds]
+    );
+    if (products.rowCount !== productIds.length) throw new HttpError(400, "Analytics event contains an unknown product");
+  }
+
+  if (req.customerUserId) {
+    await pool.query(
+      `update public.storefront_analytics_events
+          set user_id = $2
+        where session_id = $1 and user_id is null`,
+      [input.sessionId, req.customerUserId]
+    );
+  }
+  const result = await pool.query(
+    `insert into public.storefront_analytics_events
+       (event_id, session_id, user_id, event_name, product_id)
+     select event.event_id, $1, $2, event.name, event.product_id
+       from jsonb_to_recordset($3::jsonb)
+         as event(event_id uuid, name text, product_id uuid)
+     on conflict (event_id) do nothing`,
+    [input.sessionId, req.customerUserId ?? null, JSON.stringify(input.events.map((event) => ({
+      event_id: event.eventId,
+      name: event.name,
+      product_id: event.productId ?? null
+    })))]
+  );
+  res.status(202).json({ accepted: result.rowCount ?? 0 });
+}));
+
 router.post("/checkout", checkoutLimiter, requireCustomer, asyncHandler(async (req, res) => {
   if (!req.customerUserId || !req.customerEmail) throw new HttpError(401, "Customer authentication required");
   if (!req.customerEmailConfirmed) throw new HttpError(403, "Confirm your email address before checkout");
   const input = checkoutSchema.parse(req.body);
+  const sessionHeader = uuid.safeParse(req.header("x-analytics-session"));
+  const analyticsSessionId = sessionHeader.success ? sessionHeader.data : undefined;
+  if (analyticsSessionId) {
+    void pool.query(
+      `update public.storefront_analytics_events
+          set user_id = $2
+        where session_id = $1 and user_id is null`,
+      [analyticsSessionId, req.customerUserId]
+    ).catch((error: unknown) => {
+      console.warn("Unable to associate storefront events with authenticated customer", error);
+    });
+  }
   res.status(201).json(await createCheckout(input.items, {
     ...input.customer,
     email: req.customerEmail
-  }, req.customerUserId));
+  }, req.customerUserId, analyticsSessionId));
 }));
 
 router.get("/payments/:reference/verify", requireCustomer, asyncHandler(async (req, res) => {
@@ -336,13 +409,265 @@ router.post("/webhooks/paystack", asyncHandler(async (req, res) => {
   } catch {
     throw new HttpError(400, "Invalid webhook payload");
   }
-  if (event.event === "charge.success" && event.data?.reference) {
+  if ((event.event === "charge.success" || event.event === "charge.failed") && event.data?.reference) {
     await processPayment(event.data.reference);
   }
   res.sendStatus(200);
 }));
 
 router.use("/admin", requireAdmin);
+
+router.get("/admin/analytics", asyncHandler(async (req, res) => {
+  const range = z.enum(["today", "7d", "30d", "90d", "all"]).default("30d").parse(req.query.range);
+  const starts: Record<Exclude<typeof range, "all">, Date> = {
+    today: new Date(new Date().setUTCHours(0, 0, 0, 0)),
+    "7d": new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+    "30d": new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+    "90d": new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+  };
+  const start = range === "all" ? null : starts[range];
+  const bucket = range === "all" ? "month" : range === "today" ? "hour" : "day";
+
+  const [engagement, checkouts, payments, funnel, trend, productMetrics] = await Promise.all([
+    pool.query(
+      `select count(*) filter (where event_name = 'product_view')::integer as product_views,
+              count(distinct session_id) filter (where event_name = 'product_view')::integer as product_view_sessions,
+              count(*) filter (where event_name = 'add_to_cart')::integer as cart_additions,
+              count(distinct session_id) filter (where event_name = 'add_to_cart')::integer as cart_add_sessions,
+              count(*) filter (where event_name = 'remove_from_cart')::integer as cart_removals,
+              count(*) filter (where event_name = 'cart_view')::integer as cart_views
+         from public.storefront_analytics_events
+        where $1::timestamptz is null or created_at >= $1`,
+      [start]
+    ),
+    pool.query(
+      `with checkout_events as (
+         select session_id, created_at
+           from public.storefront_analytics_events
+          where event_name = 'checkout_started'
+            and ($1::timestamptz is null or created_at >= $1)
+       ),
+       checkout_orders as (
+         select id, analytics_session_id as session_id, created_at, checkout_expired_at
+           from public.orders
+          where $1::timestamptz is null or created_at >= $1
+       ),
+       starts as (
+         select session_id from checkout_events
+         union
+         select session_id from checkout_orders where session_id is not null
+       ),
+       unsubmitted_abandoned as (
+         select distinct e.session_id
+           from checkout_events e
+          where e.created_at <= now() - interval '30 minutes'
+            and not exists (
+              select 1 from public.orders o
+               where o.analytics_session_id = e.session_id
+                 and o.created_at >= e.created_at
+                 and o.created_at < e.created_at + interval '30 minutes'
+            )
+       ),
+       expired_abandoned as (
+         select o.id as order_id, o.session_id
+           from checkout_orders o
+          where o.checkout_expired_at is not null
+            and not exists (
+              select 1 from public.payments p
+               where p.order_id = o.id and p.cancelled_at is not null
+            )
+       ),
+       abandoned_sessions as (
+         select session_id from unsubmitted_abandoned
+         union
+         select session_id from expired_abandoned where session_id is not null
+       )
+       select ((select count(*) from starts)
+                 + (select count(*) from checkout_orders where session_id is null))::integer as checkout_starts,
+              (select count(*) from starts)::integer as checkout_sessions,
+              ((select count(*) from abandoned_sessions)
+                 + (select count(*) from expired_abandoned where session_id is null))::integer
+                as abandoned_checkouts,
+              ((select count(*) from abandoned_sessions)
+                 + (select count(*) from expired_abandoned where session_id is null))::integer
+                as abandoned_checkout_sessions`,
+      [start]
+    ),
+    pool.query(
+      `select count(*) filter (
+                where (p.initialized_at is not null or p.status = 'success' or p.cancelled_at is not null)
+                  and ($1::timestamptz is null or coalesce(p.initialized_at, p.created_at) >= $1)
+              )::integer as payment_attempts,
+              count(distinct o.analytics_session_id) filter (
+                where (p.initialized_at is not null or p.status = 'success' or p.cancelled_at is not null)
+                  and ($1::timestamptz is null or coalesce(p.initialized_at, p.created_at) >= $1)
+              )::integer as payment_sessions,
+              count(*) filter (
+                where p.status = 'abandoned' and p.cancelled_at is not null
+                  and ($1::timestamptz is null or coalesce(p.initialized_at, p.created_at) >= $1)
+              )::integer as payment_cancellations,
+              count(*) filter (
+                where p.status = 'failed' and p.initialized_at is not null
+                  and ($1::timestamptz is null or p.initialized_at >= $1)
+              )::integer as payment_failures,
+              count(*) filter (
+                where p.status = 'success'
+                  and ($1::timestamptz is null or coalesce(p.paid_at, p.updated_at) >= $1)
+              )::integer as successful_payments,
+              count(distinct o.id) filter (
+                where p.status = 'success'
+                  and ($1::timestamptz is null or coalesce(p.paid_at, p.updated_at) >= $1)
+              )::integer as orders_placed,
+              count(distinct o.analytics_session_id) filter (
+                where p.status = 'success'
+                  and ($1::timestamptz is null or coalesce(p.paid_at, p.updated_at) >= $1)
+              )::integer
+                as purchase_sessions
+         from public.payments p
+         join public.orders o on o.id = p.order_id`,
+      [start]
+    ),
+    pool.query(
+      `with session_events as (
+         select session_id,
+                  bool_or(event_name = 'product_view') as viewed,
+                  bool_or(event_name = 'add_to_cart') as added
+           from public.storefront_analytics_events
+          where ($1::timestamptz is null or created_at >= $1)
+          group by session_id
+       ),
+       session_checkouts as (
+         select session_id, true as checked_out
+           from (
+             select session_id, created_at as checkout_at
+               from public.storefront_analytics_events
+              where event_name = 'checkout_started'
+                and ($1::timestamptz is null or created_at >= $1)
+             union all
+             select analytics_session_id, created_at
+               from public.orders
+              where analytics_session_id is not null
+                and ($1::timestamptz is null or created_at >= $1)
+           ) checkout_activity
+          group by session_id
+       ),
+       session_attempts as (
+         select o.analytics_session_id as session_id,
+                bool_or(p.initialized_at is not null or p.status = 'success' or p.cancelled_at is not null)
+                  as attempted,
+                bool_or(p.status = 'success') as paid
+           from public.payments p
+           join public.orders o on o.id = p.order_id
+          where o.analytics_session_id is not null
+            and (p.initialized_at is not null or p.status = 'success' or p.cancelled_at is not null)
+            and ($1::timestamptz is null or p.initialized_at >= $1
+                 or p.cancelled_at >= $1
+                 or (p.status = 'success' and coalesce(p.paid_at, p.updated_at) >= $1)
+                 or (p.status = 'failed' and p.updated_at >= $1))
+          group by o.analytics_session_id
+       )
+       select count(*) filter (where viewed)::integer as views,
+              count(*) filter (where viewed and added)::integer as adds,
+              count(*) filter (
+                where viewed and added and checked_out
+              )::integer as checkouts,
+              count(*) filter (
+                where viewed and added and checked_out and attempted
+              )::integer as payments,
+              count(*) filter (
+                where viewed and added and checked_out and attempted and paid
+              )::integer as purchases
+         from session_events e
+         left join session_checkouts c using (session_id)
+         left join session_attempts p using (session_id)`,
+      [start]
+    ),
+    pool.query(
+      `with trend_rows as (
+         select date_trunc('${bucket}', created_at) as period,
+                count(*) filter (where event_name = 'product_view')::integer as views,
+                count(*) filter (where event_name = 'add_to_cart')::integer as additions,
+                0::integer as checkouts,
+                0::integer as purchases
+           from public.storefront_analytics_events
+          where $1::timestamptz is null or created_at >= $1
+          group by date_trunc('${bucket}', created_at)
+         union all
+         select date_trunc('${bucket}', checkout_at), 0, 0, count(*)::integer, 0
+           from (
+             select created_at as checkout_at
+               from public.storefront_analytics_events
+              where event_name = 'checkout_started'
+                and ($1::timestamptz is null or created_at >= $1)
+             union all
+             select o.created_at
+               from public.orders o
+              where ($1::timestamptz is null or o.created_at >= $1)
+                and not exists (
+                  select 1 from public.storefront_analytics_events e
+                   where e.event_name = 'checkout_started'
+                     and e.session_id = o.analytics_session_id
+                     and e.created_at between o.created_at - interval '30 minutes' and o.created_at
+                )
+           ) checkout_points
+          group by date_trunc('${bucket}', checkout_at)
+         union all
+         select date_trunc('${bucket}', coalesce(p.paid_at, p.updated_at)), 0, 0, 0, count(distinct o.id)::integer
+           from public.payments p
+           join public.orders o on o.id = p.order_id
+          where p.status = 'success'
+            and ($1::timestamptz is null or coalesce(p.paid_at, p.updated_at) >= $1)
+          group by date_trunc('${bucket}', coalesce(p.paid_at, p.updated_at))
+       )
+       select period, sum(views)::integer as views, sum(additions)::integer as additions,
+              sum(checkouts)::integer as checkouts, sum(purchases)::integer as purchases
+         from trend_rows group by period order by period`,
+      [start]
+    ),
+    pool.query(
+      `with engagement as (
+         select product_id,
+                count(*) filter (where event_name = 'product_view')::integer as views,
+                count(*) filter (where event_name = 'add_to_cart')::integer as additions
+           from public.storefront_analytics_events
+          where product_id is not null and ($1::timestamptz is null or created_at >= $1)
+          group by product_id
+       ),
+       purchases as (
+         select oi.product_id, sum(oi.quantity)::integer as purchases
+           from public.payments pay
+           join public.orders o on o.id = pay.order_id
+           join public.order_items oi on oi.order_id = o.id
+          where pay.status = 'success'
+            and ($1::timestamptz is null or coalesce(pay.paid_at, pay.updated_at) >= $1)
+          group by oi.product_id
+       )
+       select p.id, p.name, coalesce(e.views, 0)::integer as views,
+              coalesce(e.additions, 0)::integer as additions,
+              coalesce(b.purchases, 0)::integer as purchases
+         from public.products p
+         left join engagement e on e.product_id = p.id
+         left join purchases b on b.product_id = p.id
+        where coalesce(e.views, 0) > 0 or coalesce(e.additions, 0) > 0
+           or coalesce(b.purchases, 0) > 0
+        order by greatest(coalesce(e.views, 0), coalesce(e.additions, 0), coalesce(b.purchases, 0)) desc,
+                 p.name`,
+      [start]
+    )
+  ]);
+
+  res.json({
+    range,
+    metrics: {
+      ...engagement.rows[0],
+      ...checkouts.rows[0],
+      ...payments.rows[0]
+    },
+    funnel: funnel.rows[0],
+    trend: trend.rows,
+    productMetrics: productMetrics.rows
+  });
+}));
 
 router.get("/admin/dashboard", asyncHandler(async (_req, res) => {
   const [orders, products, recent, sales] = await Promise.all([

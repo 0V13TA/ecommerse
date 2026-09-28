@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/public';
 import { browser } from '$app/environment';
+import { getAnalyticsSessionId } from './analytics';
 import { supabase } from './supabase';
 import type {
   Category,
@@ -123,8 +124,12 @@ export async function getProduct(slug: string, fetcher: typeof fetch = fetch): P
 export function createCheckout(
   body: CheckoutRequest,
 ): Promise<CheckoutResponse> {
+  const headers = new Headers();
+  const analyticsSessionId = getAnalyticsSessionId();
+  if (analyticsSessionId) headers.set('X-Analytics-Session', analyticsSessionId);
   return customerRequest<CheckoutResponse>('/checkout', {
     method: 'POST',
+    headers,
     body: JSON.stringify(body)
   });
 }

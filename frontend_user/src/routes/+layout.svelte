@@ -2,13 +2,29 @@
   import { onMount } from 'svelte';
   import { navigating, page } from '$app/stores';
   import { hydrateCart, cart } from '$lib/cart';
+  import { isAnalyticsEnabled, setAnalyticsEnabled } from '$lib/analytics';
   import { supabase } from '$lib/supabase';
   import '../styles.css';
 
   let customerEmail = '';
   let customerReady = false;
+  let analyticsEnabled = true;
 
   onMount(hydrateCart);
+  onMount(() => {
+    const updatePreference = () => {
+      analyticsEnabled = isAnalyticsEnabled();
+    };
+    updatePreference();
+    window.addEventListener('goodfolk-analytics-preference', updatePreference);
+    return () => window.removeEventListener('goodfolk-analytics-preference', updatePreference);
+  });
+
+  function toggleAnalytics() {
+    setAnalyticsEnabled(!analyticsEnabled);
+    analyticsEnabled = isAnalyticsEnabled();
+  }
+
   onMount(() => {
     let active = true;
     supabase.auth.getSession().then(({ data, error }) => {
@@ -17,6 +33,7 @@
       customerEmail = data.session?.user.email ?? '';
       customerReady = true;
     });
+
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       customerEmail = session?.user.email ?? '';
       customerReady = true;
@@ -66,5 +83,11 @@
     <a class="wordmark footer-mark" href="/">goodfolk<span class="wordmark-period">.</span></a>
     <p>Useful things, chosen with care.</p>
     <span>Thoughtfully sourced. Made for everyday.</span>
+    <div class="analytics-privacy">
+      <p>We use first-party analytics to improve the store. Browsing is linked to an anonymous tab ID; signed-in activity may be associated with your account ID. Names and contact details are not stored in analytics.</p>
+      <button type="button" onclick={toggleAnalytics}>
+        {analyticsEnabled ? 'Opt out of analytics' : 'Opt in to anonymous analytics'}
+      </button>
+    </div>
   </footer>
 </div>

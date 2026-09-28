@@ -91,6 +91,58 @@ export interface SalesOverTime {
   totalMinor: number;
 }
 
+export interface AnalyticsMetrics {
+  product_views: number;
+  product_view_sessions: number;
+  cart_additions: number;
+  cart_add_sessions: number;
+  cart_removals: number;
+  cart_views: number;
+  checkout_starts: number;
+  checkout_sessions: number;
+  abandoned_checkouts: number;
+  abandoned_checkout_sessions: number;
+  payment_attempts: number;
+  payment_sessions: number;
+  payment_cancellations: number;
+  payment_failures: number;
+  successful_payments: number;
+  orders_placed: number;
+  purchase_sessions: number;
+}
+
+export interface AnalyticsFunnel {
+  views: number;
+  adds: number;
+  checkouts: number;
+  payments: number;
+  purchases: number;
+}
+
+export interface AnalyticsTrend {
+  period: string;
+  views: number;
+  additions: number;
+  checkouts: number;
+  purchases: number;
+}
+
+export interface AnalyticsProductMetric {
+  id: string;
+  name: string;
+  views: number;
+  additions: number;
+  purchases: number;
+}
+
+export interface StoreAnalytics {
+  range: 'today' | '7d' | '30d' | '90d' | 'all';
+  metrics: AnalyticsMetrics;
+  funnel: AnalyticsFunnel;
+  trend: AnalyticsTrend[];
+  productMetrics: AnalyticsProductMetric[];
+}
+
 export interface ProductInput {
   name: string;
   sku: string;

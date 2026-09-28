@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
-  import { cart, formatPrice } from '$lib/cart';
+  import { cart, formatPrice, hydrateCart } from '$lib/cart';
+  import { trackStorefrontEvent } from '$lib/analytics';
   import { createCheckout, updateCustomerProfile, getCustomerProfile } from '$lib/api';
   import { supabase } from '$lib/supabase';
   import type { CartLine, CheckoutRequest, CheckoutResponse } from '$lib/types';
@@ -39,6 +41,8 @@
   });
 
   async function initializePage() {
+    hydrateCart();
+    if (get(cart).length) trackStorefrontEvent('checkout_started');
     const { data, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !data.session) {
       await goto(`/login?redirect=${encodeURIComponent('/checkout')}`);
@@ -204,7 +208,7 @@
             {paystackReady ? 'Pay securely with Paystack' : 'Open secure payment'} <span aria-hidden="true">→</span>
           </button>
           <button class="text-button payment-check" type="button" onclick={checkPayment} disabled={busy}>
-            {busy ? 'Checking payment…' : 'I completed payment — check status'}
+            {busy ? 'Checking payment…' : 'Check payment status'}
           </button>
           <p class="payment-privacy">Payment confirmation comes directly from Paystack to our server. This page never treats a browser message as proof of payment.</p>
         </section>

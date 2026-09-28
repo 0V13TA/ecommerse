@@ -1,11 +1,15 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { cart, formatPrice, removeFromCart, setCartQuantity } from '$lib/cart';
+  import { trackStorefrontEvent } from '$lib/analytics';
   import type { CartLine } from '$lib/types';
 
   let lines: CartLine[] = [];
   let subtotal = 0;
   $: lines = $cart;
   $: subtotal = lines.reduce((sum: number, line: CartLine) => sum + line.product.price * line.quantity, 0);
+
+  onMount(() => trackStorefrontEvent('cart_view'));
 </script>
 
 <svelte:head>

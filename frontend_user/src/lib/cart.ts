@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
+import { trackStorefrontEvent } from './analytics';
 import type { CartLine, Product } from './types';
 
 const STORAGE_KEY = 'everyday-store-cart';
@@ -59,6 +60,7 @@ function save(lines: CartLine[]): CartLine[] {
 }
 
 export function addToCart(product: Product, quantity = 1): void {
+  trackStorefrontEvent('add_to_cart', product.id);
   update((lines) => {
     const existing = lines.find((line) => line.product.id === product.id);
     const next = existing
@@ -71,6 +73,9 @@ export function addToCart(product: Product, quantity = 1): void {
 }
 
 export function setCartQuantity(productId: string, quantity: number): void {
+  if (quantity < 1 && get(cart).some((line) => line.product.id === productId)) {
+    trackStorefrontEvent('remove_from_cart', productId);
+  }
   update((lines) =>
     save(
       quantity < 1
@@ -81,6 +86,9 @@ export function setCartQuantity(productId: string, quantity: number): void {
 }
 
 export function removeFromCart(productId: string): void {
+  if (get(cart).some((line) => line.product.id === productId)) {
+    trackStorefrontEvent('remove_from_cart', productId);
+  }
   update((lines) => save(lines.filter((line) => line.product.id !== productId)));
 }
 

@@ -34,7 +34,12 @@ async function inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promi
   }
 }
 
-export async function createCheckout(items: CartLine[], customer: CustomerInput, userId: string) {
+export async function createCheckout(
+  items: CartLine[],
+  customer: CustomerInput,
+  userId: string,
+  analyticsSessionId?: string
+) {
   const productIds = items.map((item) => item.productId);
   if (productIds.length === 0 || new Set(productIds).size !== productIds.length) {
     throw new HttpError(400, "Cart must contain unique products");
@@ -105,9 +110,9 @@ export async function createCheckout(items: CartLine[], customer: CustomerInput,
       `insert into public.orders
          (order_reference, customer_id, customer_email, customer_first_name, customer_last_name,
           customer_phone, shipping_address, shipping_city, shipping_country, currency,
-          subtotal_minor, total_minor, order_status, payment_status, reserved_until)
+          subtotal_minor, total_minor, order_status, payment_status, reserved_until, analytics_session_id)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11,
-          'pending_payment', 'pending', $12)
+          'pending_payment', 'pending', $12, $13)
        returning id`,
       [
         orderReference,
@@ -121,7 +126,8 @@ export async function createCheckout(items: CartLine[], customer: CustomerInput,
         customer.country,
         currency,
         subtotal.toString(),
-        expiresAt
+        expiresAt,
+        analyticsSessionId ?? null
       ]
     );
     const orderId = createdOrder.rows[0]?.id;
@@ -164,6 +170,13 @@ export async function createCheckout(items: CartLine[], customer: CustomerInput,
       reference: order.paymentReference,
       currency: order.currency,
       metadata: { order_reference: order.orderReference }
+    });
+    void pool.query(
+      `update public.payments set initialized_at = now(), updated_at = now()
+        where reference = $1 and initialized_at is null`,
+      [order.paymentReference]
+    ).catch((error: unknown) => {
+      console.warn("Unable to record Paystack initialization for analytics", error);
     });
     return {
       orderReference: order.orderReference,
@@ -232,7 +245,9 @@ export async function processPayment(reference: string) {
       );
       if (lockedPayment.rows[0]?.status === "success") return;
       await client.query(
-        `update public.payments set status = $2, updated_at = now()
+        `update public.payments set status = $2,
+          cancelled_at = case when $2 = 'abandoned' then coalesce(cancelled_at, now()) else cancelled_at end,
+          updated_at = now()
           where reference = $1 and status in ('pending', 'abandoned')`,
         [reference, verified.status === "abandoned" ? "abandoned" : "failed"]
       );
@@ -307,7 +322,8 @@ export async function processPayment(reference: string) {
       [row.order_id]
     );
     await client.query(
-      `update public.payments set status = 'success', paid_at = coalesce($2, now()), updated_at = now()
+      `update public.payments set status = 'success', paid_at = coalesce($2, now()),
+        cancelled_at = null, updated_at = now()
         where reference = $1`,
       [reference, verified.paid_at ?? null]
     );
@@ -344,7 +360,7 @@ export async function releaseExpiredReservations() {
       );
       await client.query(
         `update public.orders set order_status = 'cancelled', payment_status = 'abandoned',
-          reserved_until = null, updated_at = now()
+          reserved_until = null, checkout_expired_at = now(), updated_at = now()
           where id = $1 and order_status = 'pending_payment'`,
         [order.order_id]
       );

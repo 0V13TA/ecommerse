@@ -391,15 +391,13 @@ Prerequisites: Node.js 20 or later, npm, Docker, and access to Supabase CLI (inc
 
 5. Migration `0004` creates the public `product-images` Storage bucket when schema migrations run. If you set `SUPABASE_STORAGE_BUCKET` to a different name, create that bucket in Studio and enable public reads. For local Auth email links, use Mailpit. Configure Google OAuth credentials in Supabase Auth only if testing Google login. For Paystack, use test credentials and set the callback URL to the storefront origin currently in use. A Paystack webhook cannot reach localhost directly; use a temporary HTTPS tunnel if testing webhook delivery locally.
 
-6. Start the API, storefront, and admin in separate terminals at the repository root:
+6. Start all three applications together from the repository root:
 
    ```sh
-   npm run dev:api
-   npm run dev:storefront
-   npm run dev:admin
+   npm run dev
    ```
 
-   The API uses port `3001`, Vite's default storefront port is `5173` (it may select `5174` if occupied), and the admin is fixed to `5175`. The API CORS defaults permit `localhost` and `127.0.0.1` on ports `5173`, `5174`, and `5175`. If Vite selects another origin, add that exact origin to `CORS_ORIGINS` and Supabase's Auth redirect allow-list, then restart the API.
+   This runs each workspace's development server in parallel in the same terminal; press `Ctrl+C` to stop them. If you prefer separate terminals, run `npm run dev:api`, `npm run dev:storefront`, and `npm run dev:admin` individually. The API uses port `3001`, Vite's default storefront port is `5173` (it may select `5174` if occupied), and the admin is fixed to `5175`. The API CORS defaults permit `localhost` and `127.0.0.1` on ports `5173`, `5174`, and `5175`. If Vite selects another origin, add that exact origin to `CORS_ORIGINS` and Supabase's Auth redirect allow-list, then restart the API.
 
 7. Create the first administrator in local Supabase Auth (Studio), then add its `auth.users.id` to `public.admin_users` using the SQL above. Customer accounts are created through the storefront signup flow.
 

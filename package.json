@@ -7,6 +7,7 @@
     "frontend_dashboard"
   ],
   "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:storefront\" \"npm run dev:admin\"",
     "dev:api": "npm run dev --workspace backend",
     "dev:storefront": "npm run dev --workspace frontend_user",
     "dev:admin": "npm run dev --workspace frontend_dashboard",
@@ -14,6 +15,7 @@
     "check": "npm run check --workspaces --if-present"
   },
   "devDependencies": {
+    "concurrently": "^10.0.5",
     "supabase": "^2.118.0"
   }
 }

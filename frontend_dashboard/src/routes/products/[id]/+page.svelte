@@ -76,7 +76,7 @@
         {/each}
       </div>
     {/if}
-    <div class="field"><label for="image">Replace product image</label><label class="upload-area" for="image"><span class="upload-icon">↑</span><strong>{imageName || 'Choose an image to upload'}</strong><small>Image upload happens after saving.</small></label><input class="file-input" id="image" type="file" accept="image/*" on:change={(event) => { image = event.currentTarget.files?.[0] ?? null; imageName = image?.name ?? ''; }} /></div>
+    <div class="field"><label for="image">Add product image</label><label class="upload-area" for="image"><span class="upload-icon">↑</span><strong>{imageName || 'Choose an image to upload'}</strong><small>JPEG, PNG, WebP, or AVIF; maximum 5 MB. Image upload happens after saving.</small></label><input class="file-input" id="image" type="file" accept="image/jpeg,image/png,image/webp,image/avif" on:change={(event) => { image = event.currentTarget.files?.[0] ?? null; imageName = image?.name ?? ''; }} /></div>
   </div>
   <div class="form-section"><h2>Pricing & inventory</h2><p>Set the price and keep track of available stock.</p>
     <div class="field-row"><div class="field"><label for="price">Price <span>*</span></label><div class="input-prefix"><span>{form.currency}</span><input id="price" type="number" min="0.01" step="0.01" bind:value={form.price} required /></div></div><div class="field"><label for="currency">Currency</label><select id="currency" bind:value={form.currency}><option>NGN</option><option>GHS</option><option>ZAR</option><option>KES</option><option>USD</option></select></div></div>

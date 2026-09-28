@@ -10,7 +10,9 @@ const envSchema = z.object({
   SUPABASE_STORAGE_BUCKET: z.string().default("product-images"),
   PAYSTACK_SECRET_KEY: z.string().min(1),
   PAYSTACK_CALLBACK_URL: z.string().url(),
-  CORS_ORIGINS: z.string().default("http://localhost:5173,http://localhost:5174,http://localhost:5175"),
+  CORS_ORIGINS: z.string().default(
+    "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175"
+  ),
   LOW_STOCK_DEFAULT: z.coerce.number().int().nonnegative().default(5)
 });
 
@@ -24,7 +26,16 @@ export const config = {
   corsOrigins: [
     ...new Set([
       ...parsed.data.CORS_ORIGINS.split(",").map((origin) => origin.trim()).filter(Boolean),
-      ...(parsed.data.NODE_ENV === "development" ? ["http://localhost:5175"] : [])
+      ...(parsed.data.NODE_ENV === "development"
+        ? [
+            "http://localhost:5173",
+            "http://localhost:5174",
+            "http://localhost:5175",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:5174",
+            "http://127.0.0.1:5175"
+          ]
+        : [])
     ])
   ]
 };

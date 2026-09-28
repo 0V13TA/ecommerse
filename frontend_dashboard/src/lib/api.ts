@@ -253,6 +253,12 @@ export const api = {
   },
   deleteProduct: (id: string) => request<void>(`/api/v1/admin/products/${encodeURIComponent(id)}`, json('DELETE')),
   async uploadProductImage(id: string, image: File) {
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(image.type)) {
+      throw new Error('Choose a JPEG, PNG, WebP, or AVIF image.');
+    }
+    if (image.size > 5 * 1024 * 1024) {
+      throw new Error('Image exceeds the 5 MB upload limit.');
+    }
     const body = new FormData();
     body.append('image', image);
     const payload = await request<{ image: ProductImage }>(

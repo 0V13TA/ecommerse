@@ -175,7 +175,7 @@ Copy each `.env.example` to `.env` in the named app directory. Never commit `.en
 | `DATABASE_URL` | Yes | PostgreSQL connection string from local Supabase status or the hosted Supabase database connection settings. Use a connection mode suitable for a long-running Node process. | **Secret** |
 | `SUPABASE_URL` | Yes | Project URL from Supabase project settings or local `supabase status`. | Server setting; URL is not a credential |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-side Supabase secret/service-role key from project API settings or local status. Grants privileged access. | **Secret—backend only; never expose or commit** |
-| `SUPABASE_STORAGE_BUCKET` | No | Storage bucket used for product and avatar uploads; defaults to `product-images`. Create the bucket in Supabase Storage. | No |
+| `SUPABASE_STORAGE_BUCKET` | No | Storage bucket used for product and avatar uploads; defaults to `product-images`, provisioned by migration `0004`. If customized, create the bucket in Supabase Storage with public reads enabled. | No |
 | `PAYSTACK_SECRET_KEY` | Yes | Paystack API secret key; use a test key locally and a live key only in production. | **Secret—backend only** |
 | `PAYSTACK_CALLBACK_URL` | Yes | Absolute storefront return URL, such as `http://localhost:5173/checkout/return` locally or `https://shop.example.com/checkout/return` in production. | No |
 | `CORS_ORIGINS` | No | Comma-separated exact browser origins allowed to call the API. Defaults cover local storefront and admin ports. Production must list the storefront/admin origins. | No |
@@ -225,9 +225,9 @@ auth.users 1 ── 0..* storefront_analytics_events
 
 `orders.customer_id` can be null for legacy/unassociated guest orders; current checkout requires customer authentication.
 
-`0001_initial_schema.sql` creates the commerce tables and enables RLS. `0002_customer_accounts_and_fulfillment.sql` links customers to Supabase Auth and adds the four-stage fulfillment values. `0003_storefront_analytics.sql` adds session/payment analytics metadata and the event table. Add future schema changes as the next numbered migration; do not edit an already-applied migration.
+`0001_initial_schema.sql` creates the commerce tables and enables RLS. `0002_customer_accounts_and_fulfillment.sql` links customers to Supabase Auth and adds the four-stage fulfillment values. `0003_storefront_analytics.sql` adds session/payment analytics metadata and the event table. `0004_product_image_storage_bucket.sql` provisions the public Storage bucket used for product and customer images. Add future schema changes as the next numbered migration; do not edit an already-applied migration.
 
-The browser clients do not access commerce tables directly. RLS is enabled and direct `anon`/`authenticated` table access is revoked in the migrations; the API accesses PostgreSQL and Supabase Storage using its server-only service-role credentials. Keep those credentials out of frontends. The `product-images` bucket must be created in Supabase Storage and configured for public reads because the API returns public image URLs; writes go through authenticated API routes.
+The browser clients do not access commerce tables directly. RLS is enabled and direct `anon`/`authenticated` table access is revoked in the migrations; the API accesses PostgreSQL and Supabase Storage using its server-only service-role credentials. Keep those credentials out of frontends. Migration `0004_product_image_storage_bucket.sql` creates the public `product-images` bucket with a 5 MB limit and JPEG/PNG/WebP/AVIF allow-list. Public reads are required because the API returns public image URLs; writes and removals go through authenticated API routes. If `SUPABASE_STORAGE_BUCKET` is changed, create a bucket with the same public-read and upload constraints in Supabase Storage.
 
 For a **fresh local database**, `npx supabase db reset` applies all migrations and `supabase/seed.sql`. It drops/recreates the local database, so it is destructive when used after local users/data exist. For schema updates on an existing local database, use `npx supabase migration up`; do not reset just to apply a migration.
 
@@ -389,7 +389,7 @@ Prerequisites: Node.js 20 or later, npm, Docker, and access to Supabase CLI (inc
 
    This is destructive to existing local database data. To apply migrations without deleting local users/data, use `npx supabase migration up`.
 
-5. Create the public `product-images` Storage bucket in Studio (or configure `SUPABASE_STORAGE_BUCKET` to the bucket you create). For local Auth email links, use Mailpit. Configure Google OAuth credentials in Supabase Auth only if testing Google login. For Paystack, use test credentials and set the callback URL to the storefront origin currently in use. A Paystack webhook cannot reach localhost directly; use a temporary HTTPS tunnel if testing webhook delivery locally.
+5. Migration `0004` creates the public `product-images` Storage bucket when schema migrations run. If you set `SUPABASE_STORAGE_BUCKET` to a different name, create that bucket in Studio and enable public reads. For local Auth email links, use Mailpit. Configure Google OAuth credentials in Supabase Auth only if testing Google login. For Paystack, use test credentials and set the callback URL to the storefront origin currently in use. A Paystack webhook cannot reach localhost directly; use a temporary HTTPS tunnel if testing webhook delivery locally.
 
 6. Start the API, storefront, and admin in separate terminals at the repository root:
 
@@ -399,7 +399,7 @@ Prerequisites: Node.js 20 or later, npm, Docker, and access to Supabase CLI (inc
    npm run dev:admin
    ```
 
-   The API uses port `3001`, Vite's default storefront port is `5173` (it may select `5174` if occupied), and the admin is fixed to `5175`. The API CORS defaults permit `5173`, `5174`, and `5175`. If Vite selects another origin, add that exact origin to `CORS_ORIGINS` and Supabase's Auth redirect allow-list, then restart the relevant service.
+   The API uses port `3001`, Vite's default storefront port is `5173` (it may select `5174` if occupied), and the admin is fixed to `5175`. The API CORS defaults permit `localhost` and `127.0.0.1` on ports `5173`, `5174`, and `5175`. If Vite selects another origin, add that exact origin to `CORS_ORIGINS` and Supabase's Auth redirect allow-list, then restart the API.
 
 7. Create the first administrator in local Supabase Auth (Studio), then add its `auth.users.id` to `public.admin_users` using the SQL above. Customer accounts are created through the storefront signup flow.
 
@@ -440,7 +440,7 @@ The domain examples are illustrative; replace them everywhere with the real doma
 - [ ] Set the storefront, admin and API domains.
 - [ ] Create a Supabase project and configure its URL/public keys for both frontends.
 - [ ] Configure backend database URL and keep the Supabase service-role key server-side.
-- [ ] Apply migrations; create the Storage bucket; decide whether to load sample seed products.
+- [ ] Apply migrations (including `0004` for the default image bucket); if using a custom bucket name, create and configure it; decide whether to load sample seed products.
 - [ ] Configure customer Auth redirects and Google OAuth credentials/redirects if used.
 - [ ] Create and authorize the initial admin user in `admin_users`.
 - [ ] Configure Paystack test/live credentials, merchant name/logo, callback and webhook URL.

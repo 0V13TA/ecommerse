@@ -329,7 +329,10 @@ router.post("/customer/profile/avatar", requireCustomer, upload.single("image"),
     contentType: file.mimetype,
     upsert: false
   });
-  if (stored.error) throw new HttpError(502, "Profile image upload failed");
+  if (stored.error) {
+    logError("Failed to upload customer profile image to Supabase Storage", stored.error);
+    throw new HttpError(502, "Profile image upload failed. Check the Supabase Storage bucket configuration.");
+  }
   const publicUrl = storage.from(config.SUPABASE_STORAGE_BUCKET).getPublicUrl(path).data.publicUrl;
   let result;
   try {
@@ -809,7 +812,10 @@ router.post("/admin/products/:id/images", upload.single("image"), asyncHandler(a
     contentType: file.mimetype,
     upsert: false
   });
-  if (stored.error) throw new HttpError(502, "Image upload failed");
+  if (stored.error) {
+    logError("Failed to upload product image to Supabase Storage", stored.error);
+    throw new HttpError(502, "Image upload failed. Check the Supabase Storage bucket configuration.");
+  }
   const publicUrl = storage.from(config.SUPABASE_STORAGE_BUCKET).getPublicUrl(path).data.publicUrl;
   const result = await pool.query(
     `insert into public.product_images (product_id, storage_path, public_url, alt_text, sort_order)

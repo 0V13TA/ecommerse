@@ -1,4 +1,6 @@
 import { env } from '$env/dynamic/public';
+import { browser } from '$app/environment';
+import { supabase } from './supabase';
 import type {
   Category,
   CheckoutRequest,
@@ -25,7 +27,11 @@ async function request<T>(path: string, fetcher: typeof fetch, init?: RequestIni
   let response: Response;
   try {
     const headers = new Headers(init?.headers);
-    if (init?.body && !headers.has('Content-Type')) {
+    if (
+      init?.body &&
+      !(typeof FormData !== 'undefined' && init.body instanceof FormData) &&
+      !headers.has('Content-Type')
+    ) {
       headers.set('Content-Type', 'application/json');
     }
     response = await fetcher(`${API_ORIGIN}${API_ROOT}${path}`, {
@@ -52,6 +58,15 @@ async function request<T>(path: string, fetcher: typeof fetch, init?: RequestIni
   } catch {
     throw new ApiError('The store returned an unexpected response.');
   }
+}
+
+async function customerRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  if (!browser) throw new ApiError('Sign in to access your account.');
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) throw new ApiError('Sign in to continue.');
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${data.session.access_token}`);
+  return request<T>(path, fetch, { ...init, headers });
 }
 
 function unwrapList<T>(value: T[] | { data?: T[]; categories?: T[] }): T[] {
@@ -107,44 +122,86 @@ export async function getProduct(slug: string, fetcher: typeof fetch = fetch): P
 
 export function createCheckout(
   body: CheckoutRequest,
-  fetcher: typeof fetch = fetch
 ): Promise<CheckoutResponse> {
-  return request<CheckoutResponse>('/checkout', fetcher, {
+  return customerRequest<CheckoutResponse>('/checkout', {
     method: 'POST',
     body: JSON.stringify(body)
   });
 }
 
 export async function getOrder(
-  reference: string,
-  fetcher: typeof fetch = fetch
+  reference: string
 ): Promise<OrderConfirmation> {
-  const result = await request<OrderConfirmation | { data: OrderConfirmation; order?: OrderConfirmation }>(
-    `/orders/${encodeURIComponent(reference)}`,
-    fetcher
+  const result = await customerRequest<{ order: OrderConfirmation }>(
+    `/customer/orders/${encodeURIComponent(reference)}`
   );
   if (!result || typeof result !== 'object') {
     throw new ApiError('The order confirmation is not available yet.');
   }
-  const order = 'order' in result ? result.order : 'data' in result ? result.data : result;
-  if (!order || typeof order !== 'object' || typeof order.status !== 'string') {
-    return normalizeOrder(order as OrderConfirmation);
-  }
-  return normalizeOrder(order);
+  return normalizeOrder(result.order);
 }
 
 export async function verifyPayment(
-  reference: string,
-  fetcher: typeof fetch = fetch
+  reference: string
 ): Promise<OrderConfirmation> {
-  const result = await request<
-    OrderConfirmation | { order: OrderConfirmation }
-  >(`/payments/${encodeURIComponent(reference)}/verify`, fetcher);
-  const order = 'order' in result ? result.order : result;
-  if (!order || typeof order !== 'object') {
-    throw new ApiError('The store returned an unexpected payment confirmation.');
+  const result = await customerRequest<{ order: { order_reference: string } }>(
+    `/payments/${encodeURIComponent(reference)}/verify`
+  );
+  if (!result.order?.order_reference) throw new ApiError('The store returned an unexpected payment confirmation.');
+  return getOrder(result.order.order_reference);
+}
+
+export interface CustomerProfile {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  address: string;
+  city: string;
+  country: string;
+  avatar_url: string | null;
+}
+
+export async function getCustomerProfile(): Promise<CustomerProfile> {
+  const result = await customerRequest<{ profile: CustomerProfile }>('/customer/profile');
+  return result.profile;
+}
+
+export async function updateCustomerProfile(profile: Omit<CustomerProfile, 'id' | 'email' | 'avatar_url'>): Promise<CustomerProfile> {
+  const result = await customerRequest<{ profile: CustomerProfile }>('/customer/profile', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      firstName: profile.first_name,
+      lastName: profile.last_name,
+      phone: profile.phone,
+      address: profile.address,
+      city: profile.city,
+      country: profile.country
+    })
+  });
+  return result.profile;
+}
+
+export async function uploadCustomerAvatar(file: File): Promise<CustomerProfile> {
+  const body = new FormData();
+  body.append('image', file);
+  const result = await customerRequest<{ profile: CustomerProfile }>('/customer/profile/avatar', {
+    method: 'POST',
+    body
+  });
+  return result.profile;
+}
+
+export async function getCustomerOrders(): Promise<OrderConfirmation[]> {
+  const orders: OrderConfirmation[] = [];
+  for (let page = 1; ; page += 1) {
+    const result = await customerRequest<{ orders: OrderConfirmation[] }>(
+      `/customer/orders?page=${page}&limit=100`
+    );
+    orders.push(...result.orders.map(normalizeOrder));
+    if (result.orders.length < 100) return orders;
   }
-  return normalizeOrder(order);
 }
 
 export function normalizeProduct(product: Product): Product {
@@ -173,7 +230,7 @@ export function normalizeProduct(product: Product): Product {
 }
 
 export function normalizeOrder(order: OrderConfirmation): OrderConfirmation {
-  const status = order.payment_status ?? order.status ?? order.order_status;
+  const status = order.order_status ?? order.status;
   if (typeof status !== 'string') {
     throw new ApiError('The store returned an unexpected order confirmation.');
   }
@@ -181,13 +238,15 @@ export function normalizeOrder(order: OrderConfirmation): OrderConfirmation {
     ...order,
     orderReference: order.orderReference ?? order.order_reference ?? '',
     status,
+    paymentStatus: order.payment_status ?? order.paymentStatus,
     total:
       order.total ??
       (order.total_minor !== undefined ? Number(order.total_minor) / 100 : null),
-    customerName: order.customerName ?? order.customer_first_name ?? null,
+    customerName: order.customerName ?? ([order.customer_first_name, order.customer_last_name].filter(Boolean).join(' ') || null),
     items: order.items?.map((item) => ({
       ...item,
-      name: item.name ?? item.productName ?? 'Item'
+      name: item.name ?? item.productName ?? 'Item',
+      unitPriceMinor: item.unitPriceMinor ?? item.priceMinor ?? item.price_minor ?? 0
     }))
   };
 }

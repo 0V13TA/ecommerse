@@ -17,12 +17,14 @@
   let reference = data.reference;
   let paymentReference = data.paymentReference;
   let status = '';
+  let paymentStatus = '';
   let paid = false;
   let pending = false;
 
   $: status = order?.status?.toLowerCase() ?? '';
-  $: paid = ['paid', 'success', 'successful', 'completed'].includes(status);
-  $: pending = !error && !!order && !paid && ['pending', 'processing', 'pending_payment'].includes(status);
+  $: paymentStatus = order?.paymentStatus?.toLowerCase() ?? '';
+  $: paid = order?.paymentStatus === 'success';
+  $: pending = !error && !!order && !paid && ['pending', 'reconciliation_required'].includes(paymentStatus);
 
   onMount(() => {
     void loadOrder();
@@ -76,7 +78,7 @@
   }
 
   function isPaid(candidate: OrderConfirmation): boolean {
-    return ['paid', 'success', 'successful', 'completed'].includes(candidate.status.toLowerCase());
+    return candidate.paymentStatus === 'success';
   }
 
   function forgetOrderReference() {
@@ -98,14 +100,14 @@
     <span class="state-icon success-icon">✓</span>
     <p class="eyebrow">THAT'S A GOOD CHOICE</p>
     <h1>Order confirmed.</h1>
-    <p>Payment received. We’ll take good care of your order from here.</p>
+    <p>Payment received. Your order is <strong>{status.replace(/_/g, ' ')}</strong>; we’ll take good care of it from here.</p>
     {#if order?.orderReference}<p class="reference-note">Order reference <strong>{order.orderReference}</strong></p>{/if}
-    <a class="button button-dark" href="/">Back to the shop</a>
+    <a class="button button-dark" href={order?.orderReference ? `/account/orders/${encodeURIComponent(order.orderReference)}` : '/account'}>View order</a>
   {:else if pending}
     <span class="state-icon">◷</span>
     <p class="eyebrow">PAYMENT UPDATE</p>
     <h1>We're checking on it.</h1>
-    <p>Your order is {status || 'being processed'}. It may take a moment for the payment status to update.</p>
+    <p>Payment status: {order?.paymentStatus || 'pending'}. Your order status: {status.replace(/_/g, ' ') || 'awaiting payment'}.</p>
     {#if order?.orderReference}<p class="reference-note">Order reference <strong>{order.orderReference}</strong></p>{/if}
     <button class="button button-dark" onclick={checkAgain} disabled={checking}>
       {checking ? 'Checking…' : 'Check again'}
@@ -113,8 +115,8 @@
   {:else}
     <span class="state-icon">↗</span>
     <p class="eyebrow">ORDER UPDATE</p>
-    <h1>{checking ? 'Checking your order…' : status ? 'Payment wasn’t completed.' : 'We couldn’t confirm that yet.'}</h1>
-    <p>{error || (status ? `The payment status is ${status}. Your bag is still saved if you would like to try again.` : reference ? 'Your order details are not available right now.' : 'No order reference was provided. Check your payment confirmation or contact us with your receipt.')}</p>
+    <h1>{checking ? 'Checking your order…' : paymentStatus ? 'Payment wasn’t completed.' : 'We couldn’t confirm that yet.'}</h1>
+    <p>{error || (paymentStatus ? `The payment status is ${paymentStatus}. Your bag is still saved if you would like to try again.` : reference ? 'Your order details are not available right now.' : 'No order reference was provided. Check your payment confirmation or contact us with your receipt.')}</p>
     {#if reference}<p class="reference-note">Order reference <strong>{reference}</strong></p>{/if}
     {#if reference}
       <button class="button button-dark" onclick={checkAgain} disabled={checking}>Try again</button>

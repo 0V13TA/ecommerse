@@ -34,7 +34,7 @@ async function inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promi
   }
 }
 
-export async function createCheckout(items: CartLine[], customer: CustomerInput) {
+export async function createCheckout(items: CartLine[], customer: CustomerInput, userId: string) {
   const productIds = items.map((item) => item.productId);
   if (productIds.length === 0 || new Set(productIds).size !== productIds.length) {
     throw new HttpError(400, "Cart must contain unique products");
@@ -89,16 +89,18 @@ export async function createCheckout(items: CartLine[], customer: CustomerInput)
     }
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
     const customerResult = await client.query<{ id: string }>(
-      `insert into public.customers (email, first_name, last_name, phone, address, city, country)
-       values ($1, $2, $3, $4, $5, $6, $7)
+      `insert into public.customers (email, user_id, first_name, last_name, phone, address, city, country)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
        on conflict (email) do update set first_name = excluded.first_name,
          last_name = excluded.last_name, phone = excluded.phone, address = excluded.address,
-         city = excluded.city, country = excluded.country, updated_at = now()
+         city = excluded.city, country = excluded.country, user_id = excluded.user_id,
+         updated_at = now()
+       where public.customers.user_id is null or public.customers.user_id = excluded.user_id
        returning id`,
-      [customer.email, customer.firstName, customer.lastName, customer.phone, customer.address, customer.city, customer.country]
+      [customer.email, userId, customer.firstName, customer.lastName, customer.phone, customer.address, customer.city, customer.country]
     );
     const customerId = customerResult.rows[0]?.id;
-    if (!customerId) throw new Error("Customer insert did not return an id");
+    if (!customerId) throw new HttpError(409, "This email address is already associated with a different customer account");
     const createdOrder = await client.query<{ id: string }>(
       `insert into public.orders
          (order_reference, customer_id, customer_email, customer_first_name, customer_last_name,
@@ -163,7 +165,12 @@ export async function createCheckout(items: CartLine[], customer: CustomerInput)
       currency: order.currency,
       metadata: { order_reference: order.orderReference }
     });
-    return { orderReference: order.orderReference, paymentUrl: transaction.authorization_url };
+    return {
+      orderReference: order.orderReference,
+      paymentUrl: transaction.authorization_url,
+      accessCode: transaction.access_code,
+      paymentReference: order.paymentReference
+    };
   } catch (error) {
     await inTransaction(async (client) => {
       await client.query(`select id from public.orders where id = $1 for update`, [order.orderId]);
@@ -305,7 +312,7 @@ export async function processPayment(reference: string) {
       [reference, verified.paid_at ?? null]
     );
     await client.query(
-      `update public.orders set payment_status = 'success', order_status = 'confirmed',
+      `update public.orders set payment_status = 'success', order_status = 'received',
         reserved_until = null, updated_at = now() where id = $1`,
       [row.order_id]
     );

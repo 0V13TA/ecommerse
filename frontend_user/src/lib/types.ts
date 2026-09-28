@@ -37,7 +37,6 @@ export interface CartLine {
 export interface CheckoutRequest {
   items: Array<{ productId: string; quantity: number }>;
   customer: {
-    email: string;
     firstName: string;
     lastName: string;
     phone: string;
@@ -50,18 +49,41 @@ export interface CheckoutRequest {
 export interface CheckoutResponse {
   orderReference: string;
   paymentUrl: string;
+  accessCode: string;
+  paymentReference: string;
 }
 
 export interface OrderConfirmation {
   orderReference: string;
   status: string;
+  paymentStatus?: string;
   total?: number | null;
   currency?: string | null;
   customerName?: string | null;
-  items?: Array<{ name?: string; productName?: string; quantity: number; unitPriceMinor?: number | string }>;
+  items?: Array<{
+    id?: string;
+    name?: string;
+    productName?: string;
+    sku?: string | null;
+    quantity: number;
+    unitPriceMinor?: number | string;
+    lineTotalMinor?: number | string;
+    price_minor?: number | string;
+    line_total_minor?: number | string;
+  }>;
   order_reference?: string;
   order_status?: string;
+  payment_reference?: string;
   payment_status?: string;
   total_minor?: number | string;
   customer_first_name?: string;
+  customer_last_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  shipping_address?: string;
+  shipping_city?: string;
+  shipping_country?: string;
+  created_at?: string;
+  subtotal_minor?: number | string;
+  id?: string;
 }

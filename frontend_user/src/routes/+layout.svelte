@@ -2,9 +2,30 @@
   import { onMount } from 'svelte';
   import { navigating, page } from '$app/stores';
   import { hydrateCart, cart } from '$lib/cart';
+  import { supabase } from '$lib/supabase';
   import '../styles.css';
 
+  let customerEmail = '';
+  let customerReady = false;
+
   onMount(hydrateCart);
+  onMount(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) console.error('Failed to restore customer session', error.message);
+      customerEmail = data.session?.user.email ?? '';
+      customerReady = true;
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      customerEmail = session?.user.email ?? '';
+      customerReady = true;
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  });
 </script>
 
 <svelte:head>
@@ -24,6 +45,11 @@
     <nav aria-label="Main navigation">
       <a class:active={$page.url.pathname === '/'} href="/">Shop</a>
       <a class:active={$page.url.pathname === '/#about'} href="/#about">Our story</a>
+      {#if customerReady}
+        <a class:active={$page.url.pathname.startsWith('/account')} href={customerEmail ? '/account' : '/login?redirect=%2Faccount'}>
+          {customerEmail ? 'Account' : 'Sign in'}
+        </a>
+      {/if}
     </nav>
     <a class="cart-link" href="/cart" aria-label={`Shopping bag, ${$cart.reduce((n, line) => n + line.quantity, 0)} items`}>
       <span class="bag-icon" aria-hidden="true">▱</span>

@@ -5,10 +5,11 @@ import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { config } from "./config.js";
 import { pool } from "./db.js";
-import { asyncHandler, HttpError } from "./errors.js";
+import { asyncHandler, HttpError, logError } from "./errors.js";
 import { createCheckout, processPayment } from "./commerce.js";
 import { isValidWebhookSignature } from "./paystack.js";
 import { requireAdmin } from "./auth.js";
+import { requireCustomer } from "./customer-auth.js";
 import rateLimit from "express-rate-limit";
 
 const router = Router();
@@ -42,7 +43,6 @@ const pagination = z.object({
 const checkoutSchema = z.object({
   items: z.array(z.object({ productId: uuid, quantity: z.number().int().min(1).max(50) })).min(1).max(30),
   customer: z.object({
-    email: z.string().email().max(254).transform((email) => email.trim().toLowerCase()),
     firstName: z.string().trim().min(1).max(100),
     lastName: z.string().trim().min(1).max(100),
     phone: z.string().trim().min(5).max(40),
@@ -69,6 +69,49 @@ const categorySchema = z.object({
   description: z.string().max(1000).default(""),
   isActive: z.boolean().default(true)
 });
+const customerProfileSchema = z.object({
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
+  phone: z.string().trim().min(5).max(40),
+  address: z.string().trim().min(3).max(300),
+  city: z.string().trim().min(1).max(100),
+  country: z.string().trim().min(2).max(100)
+});
+
+async function ensureCustomer(userId: string, email: string, emailConfirmed: boolean) {
+  if (!emailConfirmed) {
+    throw new HttpError(403, "Confirm your email address before using customer account features");
+  }
+  const name = email.split("@")[0] || "Customer";
+  const result = await pool.query(
+    `insert into public.customers (email, user_id, first_name, last_name, phone, address, city, country)
+     values ($1, $2, $3, '', '', '', '', '')
+     on conflict (email) do update set user_id = excluded.user_id, updated_at = now()
+       where public.customers.user_id is null or public.customers.user_id = excluded.user_id
+     returning id, user_id`,
+    [email, userId, name]
+  );
+  if (!result.rows[0]) {
+    throw new HttpError(409, "This email address is already associated with a different customer account");
+  }
+  await pool.query(
+    `update public.orders set customer_id = $1
+      where customer_id is null and lower(customer_email) = lower($2)`,
+    [result.rows[0].id, email]
+  );
+  return result.rows[0].id as string;
+}
+
+async function getCustomerProfile(userId: string, email: string, emailConfirmed: boolean) {
+  const customerId = await ensureCustomer(userId, email, emailConfirmed);
+  const result = await pool.query(
+    `select id, email, first_name, last_name, phone, address, city, country, avatar_url,
+            created_at, updated_at
+       from public.customers where id = $1`,
+    [customerId]
+  );
+  return result.rows[0];
+}
 
 router.get("/health", (_req, res) => res.json({ status: "ok" }));
 
@@ -146,36 +189,138 @@ router.get("/products/:slug", asyncHandler(async (req, res) => {
   res.json({ product });
 }));
 
-router.post("/checkout", checkoutLimiter, asyncHandler(async (req, res) => {
+router.post("/checkout", checkoutLimiter, requireCustomer, asyncHandler(async (req, res) => {
+  if (!req.customerUserId || !req.customerEmail) throw new HttpError(401, "Customer authentication required");
+  if (!req.customerEmailConfirmed) throw new HttpError(403, "Confirm your email address before checkout");
   const input = checkoutSchema.parse(req.body);
-  res.status(201).json(await createCheckout(input.items, input.customer));
+  res.status(201).json(await createCheckout(input.items, {
+    ...input.customer,
+    email: req.customerEmail
+  }, req.customerUserId));
 }));
 
-router.get("/orders/:orderReference", asyncHandler(async (req, res) => {
-  const reference = z.string().regex(/^ORD-[A-F0-9]{32}$/).parse(req.params.orderReference);
-  const order = await pool.query(
-    `select o.order_reference, o.order_status, o.payment_status, o.currency, o.total_minor,
-            o.created_at, o.customer_first_name,
-            coalesce(json_agg(json_build_object('productName', oi.product_name,
-              'quantity', oi.quantity, 'unitPriceMinor', oi.unit_price_minor)
-              order by oi.created_at) filter (where oi.id is not null), '[]') as items
-       from public.orders o left join public.order_items oi on oi.order_id = o.id
-      where o.order_reference = $1 group by o.id`,
-    [reference]
-  );
-  if (!order.rows[0]) throw new HttpError(404, "Order not found");
-  res.json({ order: order.rows[0] });
-}));
-
-router.get("/payments/:reference/verify", asyncHandler(async (req, res) => {
+router.get("/payments/:reference/verify", requireCustomer, asyncHandler(async (req, res) => {
+  if (!req.customerUserId || !req.customerEmail) throw new HttpError(401, "Customer authentication required");
+  const customerId = await ensureCustomer(req.customerUserId, req.customerEmail, !!req.customerEmailConfirmed);
   const reference = z.string().regex(/^PAY-[A-F0-9]{32}$/).parse(req.params.reference);
+  const owner = await pool.query(
+    `select 1 from public.payments p join public.orders o on o.id = p.order_id
+      where p.reference = $1 and o.customer_id = $2`,
+    [reference, customerId]
+  );
+  if (!owner.rows[0]) throw new HttpError(404, "Payment reference not found");
   await processPayment(reference);
   const result = await pool.query(
-    `select o.order_reference, o.order_status, o.payment_status
+    `select o.id, o.order_reference, o.order_status, o.payment_status,
+            o.currency, o.total_minor
        from public.payments p join public.orders o on o.id = p.order_id where p.reference = $1`,
     [reference]
   );
   if (!result.rows[0]) throw new HttpError(404, "Payment reference not found");
+  res.json({ order: result.rows[0] });
+}));
+
+router.get("/customer/profile", requireCustomer, asyncHandler(async (req, res) => {
+  if (!req.customerUserId || !req.customerEmail) throw new HttpError(401, "Customer authentication required");
+  const profile = await getCustomerProfile(req.customerUserId, req.customerEmail, !!req.customerEmailConfirmed);
+  res.json({ profile });
+}));
+
+router.patch("/customer/profile", requireCustomer, asyncHandler(async (req, res) => {
+  if (!req.customerUserId || !req.customerEmail) throw new HttpError(401, "Customer authentication required");
+  const input = customerProfileSchema.parse(req.body);
+  const customerId = await ensureCustomer(req.customerUserId, req.customerEmail, !!req.customerEmailConfirmed);
+  const result = await pool.query(
+    `update public.customers
+        set first_name = $2, last_name = $3, phone = $4, address = $5,
+            city = $6, country = $7, updated_at = now()
+      where id = $1 returning id, email, first_name, last_name, phone, address,
+        city, country, avatar_url, created_at, updated_at`,
+    [customerId, input.firstName, input.lastName, input.phone, input.address, input.city, input.country]
+  );
+  res.json({ profile: result.rows[0] });
+}));
+
+router.post("/customer/profile/avatar", requireCustomer, upload.single("image"), asyncHandler(async (req, res) => {
+  if (!req.customerUserId || !req.customerEmail) throw new HttpError(401, "Customer authentication required");
+  const file = req.file;
+  if (!file) throw new HttpError(400, "Image file is required");
+  const customerId = await ensureCustomer(req.customerUserId, req.customerEmail, !!req.customerEmailConfirmed);
+  const previous = await pool.query<{ avatar_path: string | null }>(
+    `select avatar_path from public.customers where id = $1`,
+    [customerId]
+  );
+  const extension = file.mimetype.split("/")[1]?.replace("jpeg", "jpg") ?? "img";
+  const path = `customers/${req.customerUserId}/${randomUUID()}.${extension}`;
+  const stored = await storage.from(config.SUPABASE_STORAGE_BUCKET).upload(path, file.buffer, {
+    contentType: file.mimetype,
+    upsert: false
+  });
+  if (stored.error) throw new HttpError(502, "Profile image upload failed");
+  const publicUrl = storage.from(config.SUPABASE_STORAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+  let result;
+  try {
+    result = await pool.query(
+      `update public.customers set avatar_path = $2, avatar_url = $3, updated_at = now()
+        where id = $1 returning id, email, first_name, last_name, phone, address,
+          city, country, avatar_url, created_at, updated_at`,
+      [customerId, path, publicUrl]
+    );
+  } catch (error) {
+    const removed = await storage.from(config.SUPABASE_STORAGE_BUCKET).remove([path]);
+    if (removed.error) logError("Failed to clean up customer avatar after database error", removed.error);
+    throw error;
+  }
+  const previousPath = previous.rows[0]?.avatar_path;
+  if (previousPath) {
+    const removed = await storage.from(config.SUPABASE_STORAGE_BUCKET).remove([previousPath]);
+    if (removed.error) logError("Failed to remove previous customer avatar", removed.error);
+  }
+  res.json({ profile: result.rows[0] });
+}));
+
+router.get("/customer/orders", requireCustomer, asyncHandler(async (req, res) => {
+  if (!req.customerUserId || !req.customerEmail) throw new HttpError(401, "Customer authentication required");
+  const customerId = await ensureCustomer(req.customerUserId, req.customerEmail, !!req.customerEmailConfirmed);
+  const page = pagination.parse(req.query);
+  const result = await pool.query(
+    `select o.id, o.order_reference, o.order_status, o.payment_status, o.currency,
+            o.total_minor, o.created_at,
+            count(oi.id)::integer as item_count,
+            p.reference as payment_reference
+       from public.orders o
+       left join public.order_items oi on oi.order_id = o.id
+       left join public.payments p on p.order_id = o.id
+      where o.customer_id = $1
+      group by o.id, p.reference
+      order by o.created_at desc
+      limit $2 offset $3`,
+    [customerId, page.limit, (page.page - 1) * page.limit]
+  );
+  res.json({ orders: result.rows, page: page.page, limit: page.limit });
+}));
+
+router.get("/customer/orders/:orderReference", requireCustomer, asyncHandler(async (req, res) => {
+  if (!req.customerUserId || !req.customerEmail) throw new HttpError(401, "Customer authentication required");
+  const customerId = await ensureCustomer(req.customerUserId, req.customerEmail, !!req.customerEmailConfirmed);
+  const reference = z.string().regex(/^ORD-[A-F0-9]{32}$/).parse(req.params.orderReference);
+  const result = await pool.query(
+    `select o.id, o.order_reference, o.order_status, o.payment_status, o.currency,
+            o.subtotal_minor, o.total_minor, o.created_at, o.customer_first_name,
+            o.customer_last_name, o.customer_email, o.customer_phone, o.shipping_address,
+            o.shipping_city, o.shipping_country, p.reference as payment_reference,
+            coalesce(json_agg(json_build_object('id', oi.id, 'productName', oi.product_name,
+              'sku', oi.product_sku, 'quantity', oi.quantity,
+              'unitPriceMinor', oi.unit_price_minor, 'lineTotalMinor', oi.line_total_minor)
+              order by oi.created_at) filter (where oi.id is not null), '[]') as items
+       from public.orders o
+       left join public.order_items oi on oi.order_id = o.id
+       left join public.payments p on p.order_id = o.id
+      where o.customer_id = $1 and o.order_reference = $2
+      group by o.id, p.reference`,
+    [customerId, reference]
+  );
+  if (!result.rows[0]) throw new HttpError(404, "Order not found");
   res.json({ order: result.rows[0] });
 }));
 
@@ -203,7 +348,7 @@ router.get("/admin/dashboard", asyncHandler(async (_req, res) => {
   const [orders, products, recent, sales] = await Promise.all([
     pool.query(
       `select count(*)::integer as total_orders,
-        count(*) filter (where order_status in ('pending_payment','confirmed','processing'))::integer as pending_orders,
+        count(*) filter (where order_status in ('pending_payment','received','processing'))::integer as pending_orders,
         count(*) filter (where order_status in ('shipped','delivered'))::integer as completed_orders,
         count(*) filter (where order_status = 'cancelled')::integer as cancelled_orders,
         coalesce(sum(total_minor) filter (where payment_status = 'success'), 0)::text as total_sales
@@ -462,7 +607,7 @@ router.patch("/admin/inventory/:productId", asyncHandler(async (req, res) => {
 
 router.get("/admin/orders", asyncHandler(async (req, res) => {
   const page = pagination.parse(req.query);
-  const status = z.enum(["pending_payment", "confirmed", "processing", "shipped", "delivered", "cancelled"]).optional().parse(req.query.status);
+  const status = z.enum(["pending_payment", "received", "processing", "shipped", "delivered", "cancelled"]).optional().parse(req.query.status);
   const values: unknown[] = [];
   const where = status ? (values.push(status), "where order_status = $1") : "";
   const result = await pool.query(
@@ -478,7 +623,9 @@ router.get("/admin/orders", asyncHandler(async (req, res) => {
 router.get("/admin/orders/:id", asyncHandler(async (req, res) => {
   const id = uuid.parse(req.params.id);
   const order = await pool.query(
-    `select o.*, coalesce(json_agg(json_build_object('id', oi.id, 'productId', oi.product_id,
+    `select o.*, (select p.reference from public.payments p where p.order_id = o.id
+       order by p.created_at desc limit 1) as payment_reference,
+       coalesce(json_agg(json_build_object('id', oi.id, 'productId', oi.product_id,
        'productName', oi.product_name, 'sku', oi.product_sku, 'unitPriceMinor', oi.unit_price_minor,
        'quantity', oi.quantity, 'lineTotalMinor', oi.line_total_minor)
        order by oi.created_at) filter (where oi.id is not null), '[]') as items
@@ -490,10 +637,28 @@ router.get("/admin/orders/:id", asyncHandler(async (req, res) => {
   res.json({ order: order.rows[0] });
 }));
 
+router.get("/admin/customers/:id/orders", asyncHandler(async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const [customer, result] = await Promise.all([
+    pool.query(
+      `select id, email, first_name, last_name, phone, address, city, country
+         from public.customers where id = $1`,
+      [id]
+    ),
+    pool.query(
+    `select id, order_reference, order_status, payment_status, currency, total_minor, created_at
+       from public.orders where customer_id = $1 order by created_at desc`,
+      [id]
+    )
+  ]);
+  if (!customer.rows[0]) throw new HttpError(404, "Customer not found");
+  res.json({ customer: customer.rows[0], orders: result.rows });
+}));
+
 router.patch("/admin/orders/:id/status", asyncHandler(async (req, res) => {
   const id = uuid.parse(req.params.id);
   const input = z.object({
-    status: z.enum(["processing", "shipped", "delivered", "cancelled"])
+    status: z.enum(["received", "processing", "shipped", "delivered", "cancelled"])
   }).parse(req.body);
   const client = await pool.connect();
   try {
@@ -506,8 +671,8 @@ router.patch("/admin/orders/:id/status", asyncHandler(async (req, res) => {
     if (!current) throw new HttpError(404, "Order not found");
     const allowed: Record<string, string[]> = {
         pending_payment: ["cancelled"],
-        confirmed: ["processing", "cancelled"],
-        processing: ["shipped", "cancelled"],
+        received: ["processing"],
+        processing: ["shipped"],
         shipped: ["delivered"]
     };
     if (!allowed[current.order_status]?.includes(input.status)) {

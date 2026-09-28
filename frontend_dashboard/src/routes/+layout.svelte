@@ -8,6 +8,11 @@
   let ready = false;
   let signedIn = false;
   let email = '';
+  const passwordSetupPath = '/auth/setup-password';
+
+  function isPublicAuthPath(pathname: string) {
+    return pathname === '/login' || pathname === passwordSetupPath;
+  }
 
   onMount(() => {
     let active = true;
@@ -16,13 +21,13 @@
       signedIn = Boolean(data.session);
       email = data.session?.user.email ?? '';
       ready = true;
-      if (!signedIn && $page.url.pathname !== '/login') goto('/login');
+      if (!signedIn && !isPublicAuthPath($page.url.pathname)) goto('/login');
       if (signedIn && $page.url.pathname === '/login') goto('/');
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       signedIn = Boolean(session);
       email = session?.user.email ?? '';
-      if (!signedIn && $page.url.pathname !== '/login') goto('/login');
+      if (!signedIn && !isPublicAuthPath($page.url.pathname)) goto('/login');
       if (signedIn && $page.url.pathname === '/login') goto('/');
     });
     return () => {
@@ -44,6 +49,8 @@
 {#if !ready}
   <div class="boot-screen"><span class="brand-mark">N</span><span class="spinner"></span></div>
 {:else if current === '/login'}
+  <slot />
+{:else if current === '/auth/setup-password'}
   <slot />
 {:else if signedIn}
   <div class="app-shell">

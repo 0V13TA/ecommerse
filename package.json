@@ -12,5 +12,8 @@
     "dev:admin": "npm run dev --workspace frontend_dashboard",
     "build": "npm run build --workspaces --if-present",
     "check": "npm run check --workspaces --if-present"
+  },
+  "devDependencies": {
+    "supabase": "^2.118.0"
   }
 }

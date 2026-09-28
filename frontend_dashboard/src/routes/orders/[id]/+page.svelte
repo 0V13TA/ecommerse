@@ -11,8 +11,8 @@
   let status = '';
   const transitions: Record<string, string[]> = {
     pending_payment: ['cancelled'],
-    confirmed: ['processing', 'cancelled'],
-    processing: ['shipped', 'cancelled'],
+    received: ['processing'],
+    processing: ['shipped'],
     shipped: ['delivered'],
     delivered: [],
     cancelled: []
@@ -43,7 +43,9 @@
   </section>
   <aside class="panel order-side-panel"><div class="detail-block"><h2>Fulfillment</h2><p>Update the current order status.</p><label class="sr-only" for="order-status">Order status</label><select id="order-status" bind:value={status}><option value={order.order_status}>{order.order_status.replace(/_/g, ' ')}</option>{#each allowedStatuses as nextStatus}<option value={nextStatus}>{nextStatus.replace(/_/g, ' ')}</option>{/each}</select><button class="button button-primary full-button" disabled={busy || status === order.order_status || !allowedStatuses.includes(status)} on:click={updateStatus}>{busy ? 'Updating…' : 'Update status'}</button></div>
     <div class="detail-block"><h2>Payment</h2><p class={`status-pill status-${(order.payment_status ?? 'pending').toLowerCase().replace(/\s+/g, '-')}`}>{order.payment_status ?? 'pending'}</p></div>
-    <div class="detail-block"><h2>Customer</h2><div class="customer-avatar">{(order.customerName ?? order.customerEmail ?? 'C').slice(0, 1).toUpperCase()}</div><strong>{order.customerName ?? 'Customer'}</strong><span>{order.customerEmail ?? 'Email not provided'}</span></div>
+    <div class="detail-block"><h2>Customer</h2><div class="customer-avatar">{(order.customerName ?? order.customerEmail ?? 'C').slice(0, 1).toUpperCase()}</div><strong>{order.customerName ?? 'Customer'}</strong><span>{order.customerEmail ?? 'Email not provided'}</span><span>{order.customer_phone ?? 'Phone not provided'}</span></div>
+    <div class="detail-block"><h2>Delivery address</h2><address>{order.shipping_address}<br />{order.shipping_city}<br />{order.shipping_country}</address></div>
+    {#if order.customerId}<div class="detail-block"><h2>Customer order history</h2><a href={`/customers/${order.customerId}/orders`}>View all customer orders →</a></div>{/if}
     <div class="detail-block"><h2>Order information</h2><dl class="detail-list"><div><dt>Placed</dt><dd>{date(order.createdAt)}</dd></div><div><dt>Order ID</dt><dd>{order.orderNumber ?? order.id}</dd></div></dl></div>
   </aside>
 </div>{/if}

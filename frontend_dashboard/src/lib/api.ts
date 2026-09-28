@@ -1,6 +1,6 @@
 import { PUBLIC_API_URL } from '$env/static/public';
 import { supabase } from './supabase';
-import type { Category, DashboardStats, Order, Product, ProductImage, ProductInput, SalesOverTime } from './types';
+import type { Category, CustomerOrderHistory, DashboardStats, Order, Product, ProductImage, ProductInput, SalesOverTime } from './types';
 
 type Query = Record<string, string | number | boolean | undefined>;
 type ProductResponse = { product: Product };
@@ -91,12 +91,17 @@ function normalizeOrder(value: Order): Order {
     orderNumber: (raw.orderNumber ?? raw.order_number ?? raw.order_reference) as string | undefined,
     customerName: (raw.customerName ?? raw.customer_name ?? [raw.customer_first_name, raw.customer_last_name].filter(Boolean).join(' ') ?? (raw.customer as { name?: string } | undefined)?.name) as string | undefined,
     customerEmail: (raw.customerEmail ?? raw.customer_email ?? (raw.customer as { email?: string } | undefined)?.email) as string | undefined,
+    customerId: (raw.customerId ?? raw.customer_id) as string | undefined,
+    customer_phone: (raw.customer_phone ?? raw.phone) as string | undefined,
+    shipping_address: raw.shipping_address as string | undefined,
+    shipping_city: raw.shipping_city as string | undefined,
+    shipping_country: raw.shipping_country as string | undefined,
     createdAt: (raw.createdAt ?? raw.created_at) as string | undefined,
     items: Array.isArray(rawItems) ? (rawItems as Array<Record<string, unknown>>).map((item) => ({
       id: item.id as string | undefined,
       name: (item.name ?? item.productName ?? item.product_name) as string | undefined,
       quantity: Number(item.quantity ?? 0),
-      priceMinor: Number(item.priceMinor ?? item.price_minor ?? 0),
+      priceMinor: Number(item.priceMinor ?? item.price_minor ?? item.unitPriceMinor ?? 0),
       currency: String(item.currency ?? raw.currency ?? 'NGN')
     })) : []
   };
@@ -232,6 +237,15 @@ export const api = {
   async order(id: string) {
     const payload = await request<Record<string, unknown>>(`/api/v1/admin/orders/${encodeURIComponent(id)}`);
     return normalizeOrder(unwrap<Order>(payload, 'order'));
+  },
+  async customerOrders(id: string) {
+    const payload = await request<Record<string, unknown>>(`/api/v1/admin/customers/${encodeURIComponent(id)}/orders`);
+    const customer = payload.customer as CustomerOrderHistory['customer'] | undefined;
+    if (!customer || !Array.isArray(payload.orders)) throw new Error('Unexpected customer order history response.');
+    return {
+      customer,
+      orders: (payload.orders as Order[]).map(normalizeOrder)
+    };
   },
   async updateOrderStatus(id: string, status: string) {
     const payload = await request<OrderResponse>(

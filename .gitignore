@@ -6,3 +6,5 @@ build/
 .env.*
 !.env.example
 coverage/
+/supabase/.branches/
+/supabase/.temp/

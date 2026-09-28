@@ -46,6 +46,11 @@ export interface Order {
   orderNumber?: string;
   customerName?: string;
   customerEmail?: string;
+  customerId?: string;
+  customer_phone?: string;
+  shipping_address?: string;
+  shipping_city?: string;
+  shipping_country?: string;
   order_status: string;
   payment_status?: string;
   total: number;
@@ -54,6 +59,20 @@ export interface Order {
   createdAt?: string;
   items?: OrderItem[];
   [key: string]: unknown;
+}
+
+export interface CustomerOrderHistory {
+  customer: {
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    phone: string;
+    address: string;
+    city: string;
+    country: string;
+  };
+  orders: Order[];
 }
 
 export interface DashboardStats {

@@ -10,10 +10,22 @@
     event.preventDefault();
     error = '';
     busy = true;
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
-    busy = false;
-    if (authError) error = 'Unable to sign in. Check your credentials and admin access.';
-    else await goto('/');
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+      if (authError?.code === 'email_not_confirmed') {
+        error = 'This email is not confirmed in Supabase Auth. Confirm the user in the local Supabase Studio and try again.';
+      } else if (authError?.code === 'invalid_credentials') {
+        error = 'Supabase rejected this email and password. Check the credentials and verify this app is connected to the local Supabase project.';
+      } else if (authError) {
+        error = `Supabase sign-in failed: ${authError.message}`;
+      } else {
+        await goto('/');
+      }
+    } catch {
+      error = 'Could not reach Supabase Auth. Check that local Supabase is running and the admin app uses http://127.0.0.1:54321.';
+    } finally {
+      busy = false;
+    }
   }
 </script>
 

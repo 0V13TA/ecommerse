@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { supabase } from '$lib/supabase';
+  import { adminBrand } from '$lib/brand';
   import '../app.css';
 
   let ready = false;
@@ -44,7 +45,7 @@
   $: current = $page.url.pathname;
 </script>
 
-<svelte:head><title>Admin · Northstar</title><meta name="description" content="E-commerce administration dashboard" /></svelte:head>
+<svelte:head><title>Admin · {adminBrand.name}</title><meta name="description" content={adminBrand.title} /></svelte:head>
 
 {#if !ready}
   <div class="boot-screen"><span class="brand-mark">N</span><span class="spinner"></span></div>
@@ -55,7 +56,7 @@
 {:else if signedIn}
   <div class="app-shell">
     <aside class="sidebar">
-      <a class="brand" href="/"><span class="brand-mark">N</span><span>northstar<small>COMMERCE ADMIN</small></span></a>
+      <a class="brand" href="/"><span class="brand-mark">{adminBrand.mark}</span><span>{adminBrand.name.toLowerCase()}<small>{adminBrand.descriptor.toUpperCase()}</small></span></a>
       <div class="nav-label">WORKSPACE</div>
       <nav aria-label="Main navigation">
         <a class:active={current === '/'} href="/"><span class="nav-icon">◫</span>Overview</a>

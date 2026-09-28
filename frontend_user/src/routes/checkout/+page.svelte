@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
+  import { storeBrand } from '$lib/brand';
   import { goto } from '$app/navigation';
   import { cart, formatPrice, hydrateCart } from '$lib/cart';
   import { trackStorefrontEvent } from '$lib/analytics';
@@ -177,8 +178,8 @@
 </script>
 
 <svelte:head>
-  <title>Checkout — Goodfolk</title>
-  <meta name="description" content="Complete your order securely with your Goodfolk account." />
+  <title>Checkout — {storeBrand.name}</title>
+  <meta name="description" content={`Complete your order securely with your ${storeBrand.name} account.`} />
 </svelte:head>
 
 <section class="section-wrap checkout-page">

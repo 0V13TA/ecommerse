@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { storeBrand } from '$lib/brand';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { supabase } from '$lib/supabase';
@@ -20,7 +21,7 @@
   });
 </script>
 
-<svelte:head><title>Finishing sign in — Goodfolk</title></svelte:head>
+<svelte:head><title>Finishing sign in — {storeBrand.name}</title></svelte:head>
 <section class="section-wrap auth-page">
   <div class="auth-card auth-message">
     <p class="eyebrow">SECURE SIGN IN</p>

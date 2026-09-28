@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { storeBrand } from '$lib/brand';
   import { addToCart, formatPrice } from '$lib/cart';
   import { trackStorefrontEvent } from '$lib/analytics';
   import type { Product } from '$lib/types';
@@ -30,7 +31,7 @@
 </script>
 
 <svelte:head>
-  <title>{product ? `${product.name} — Goodfolk` : 'Product — Goodfolk'}</title>
+  <title>{product ? `${product.name} — ${storeBrand.name}` : `Product — ${storeBrand.name}`}</title>
   {#if product?.description}<meta name="description" content={product.description} />{/if}
 </svelte:head>
 

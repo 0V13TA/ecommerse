@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
+  import { storeBrand } from '$lib/brand';
   import { goto } from '$app/navigation';
   import { formatPrice } from '$lib/cart';
   import { getOrder } from '$lib/api';
@@ -30,7 +31,7 @@
 </script>
 
 <svelte:head>
-  <title>{order ? `Order ${order.orderReference}` : 'Order details'} — Goodfolk</title>
+  <title>{order ? `Order ${order.orderReference}` : 'Order details'} — {storeBrand.name}</title>
   <meta name="description" content="Order status, delivery information, and receipt." />
 </svelte:head>
 

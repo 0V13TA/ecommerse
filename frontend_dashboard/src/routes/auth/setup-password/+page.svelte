@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { supabase } from '$lib/supabase';
+  import { adminBrand } from '$lib/brand';
 
   let ready = false;
   let sessionValid = false;
@@ -53,10 +54,10 @@
   }
 </script>
 
-<svelte:head><title>Set password · Northstar Admin</title></svelte:head>
+<svelte:head><title>Set password · {adminBrand.name} Admin</title></svelte:head>
 <main class="login-page">
   <section class="login-card">
-    <a class="brand login-brand" href="/"><span class="brand-mark">N</span><span>northstar<small>COMMERCE ADMIN</small></span></a>
+    <a class="brand login-brand" href="/"><span class="brand-mark">{adminBrand.mark}</span><span>{adminBrand.name.toLowerCase()}<small>{adminBrand.descriptor.toUpperCase()}</small></span></a>
     {#if !ready}
       <div class="login-intro"><h1>Checking invitation</h1><p>Please wait while we verify your secure link.</p></div>
     {:else if !sessionValid}
@@ -78,5 +79,5 @@
     {/if}
     <div class="login-footer"><span class="secure-dot"></span> Protected with secure authentication</div>
   </section>
-  <div class="login-aside"><div class="aside-orb"></div><div class="aside-copy"><div class="eyebrow">YOUR BUSINESS, IN FOCUS</div><h2>Everything your store needs.<br /><em>All in one place.</em></h2><p>Thoughtful tools for the people who keep commerce moving.</p></div><div class="aside-caption">NORTHSTAR COMMERCE · ADMIN PORTAL</div></div>
+  <div class="login-aside"><div class="aside-orb"></div><div class="aside-copy"><div class="eyebrow">YOUR BUSINESS, IN FOCUS</div><h2>Everything your store needs.<br /><em>All in one place.</em></h2><p>Thoughtful tools for the people who keep commerce moving.</p></div><div class="aside-caption">{adminBrand.name.toUpperCase()} {adminBrand.descriptor.toUpperCase()} · ADMIN PORTAL</div></div>
 </main>

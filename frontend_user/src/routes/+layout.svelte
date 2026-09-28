@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { navigating, page } from '$app/stores';
+  import { storeBrand } from '$lib/brand';
   import { hydrateCart, cart } from '$lib/cart';
   import { isAnalyticsEnabled, setAnalyticsEnabled } from '$lib/analytics';
   import { supabase } from '$lib/supabase';
@@ -46,7 +47,8 @@
 </script>
 
 <svelte:head>
-  <title>Goodfolk — Everyday, considered</title>
+  <title>{storeBrand.name} — {storeBrand.tagline}</title>
+  <meta name="description" content={storeBrand.shortDescription} />
 </svelte:head>
 
 <div class="site-shell">
@@ -55,9 +57,9 @@
   {/if}
   <div class="announcement">A little more thoughtful, a little more everyday.</div>
   <header class="site-header">
-    <a class="wordmark" href="/" aria-label="Goodfolk home">
-      <span class="wordmark-mark">g</span>
-      <span>goodfolk<span class="wordmark-period">.</span></span>
+    <a class="wordmark" href="/" aria-label={`${storeBrand.name} home`}>
+      <span class="wordmark-mark">{storeBrand.mark}</span>
+      <span>{storeBrand.name.toLowerCase()}<span class="wordmark-period">.</span></span>
     </a>
     <nav aria-label="Main navigation">
       <a class:active={$page.url.pathname === '/'} href="/">Shop</a>
@@ -80,7 +82,7 @@
     <slot />
   </main>
   <footer class="site-footer" id="about">
-    <a class="wordmark footer-mark" href="/">goodfolk<span class="wordmark-period">.</span></a>
+    <a class="wordmark footer-mark" href="/">{storeBrand.name.toLowerCase()}<span class="wordmark-period">.</span></a>
     <p>Useful things, chosen with care.</p>
     <span>Thoughtfully sourced. Made for everyday.</span>
     <div class="analytics-privacy">

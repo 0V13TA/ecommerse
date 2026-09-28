@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { storeBrand } from '$lib/brand';
   import { clearCart } from '$lib/cart';
   import { getOrder, verifyPayment } from '$lib/api';
   import type { OrderConfirmation } from '$lib/types';
@@ -91,8 +92,8 @@
 </script>
 
 <svelte:head>
-  <title>Order update — Goodfolk</title>
-  <meta name="description" content="Check the status of your Goodfolk order." />
+  <title>Order update — {storeBrand.name}</title>
+  <meta name="description" content={`Check the status of your ${storeBrand.name} order.`} />
 </svelte:head>
 
 <section class="state-panel page-state return-state">

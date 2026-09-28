@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { storeBrand } from '$lib/brand';
   import { cart, formatPrice, removeFromCart, setCartQuantity } from '$lib/cart';
   import { trackStorefrontEvent } from '$lib/analytics';
   import type { CartLine } from '$lib/types';
@@ -13,7 +14,7 @@
 </script>
 
 <svelte:head>
-  <title>Your bag — Goodfolk</title>
+  <title>Your bag — {storeBrand.name}</title>
   <meta name="description" content="Review the thoughtful finds in your shopping bag." />
 </svelte:head>
 

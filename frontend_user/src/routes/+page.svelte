@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { storeBrand } from '$lib/brand';
   import ProductCard from '$lib/components/ProductCard.svelte';
   import type { Category, Product } from '$lib/types';
 
@@ -18,8 +19,8 @@
 </script>
 
 <svelte:head>
-  <title>Shop thoughtful everyday goods — Goodfolk</title>
-  <meta name="description" content="Shop useful, thoughtfully chosen goods for the everyday." />
+  <title>{storeBrand.homeTitle} — {storeBrand.name}</title>
+  <meta name="description" content={storeBrand.homeDescription} />
 </svelte:head>
 
 <section class="hero">

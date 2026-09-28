@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { storeBrand } from '$lib/brand';
   import { supabase } from '$lib/supabase';
 
   let email = '';
@@ -76,8 +77,8 @@
 </script>
 
 <svelte:head>
-  <title>{mode === 'signin' ? 'Sign in' : 'Create account'} — Goodfolk</title>
-  <meta name="description" content="Sign in or create a Goodfolk customer account." />
+  <title>{mode === 'signin' ? 'Sign in' : 'Create account'} — {storeBrand.name}</title>
+  <meta name="description" content={`Sign in or create a ${storeBrand.name} customer account.`} />
 </svelte:head>
 
 <section class="section-wrap auth-page">
@@ -105,7 +106,7 @@
       </button>
     </form>
     <p class="auth-switch">
-      {mode === 'signin' ? 'New to Goodfolk?' : 'Already have an account?'}
+      {mode === 'signin' ? `New to ${storeBrand.name}?` : 'Already have an account?'}
       <button type="button" onclick={() => { mode = mode === 'signin' ? 'signup' : 'signin'; error = ''; notice = ''; }}>
         {mode === 'signin' ? 'Create an account' : 'Sign in'}
       </button>

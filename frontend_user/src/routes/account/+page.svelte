@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { storeBrand } from '$lib/brand';
   import { supabase } from '$lib/supabase';
   import { formatPrice } from '$lib/cart';
   import { getCustomerOrders, getCustomerProfile, updateCustomerProfile, uploadCustomerAvatar } from '$lib/api';
@@ -84,13 +85,13 @@
 </script>
 
 <svelte:head>
-  <title>Your account — Goodfolk</title>
-  <meta name="description" content="Manage your Goodfolk profile, delivery details, and orders." />
+  <title>Your account — {storeBrand.name}</title>
+  <meta name="description" content={`Manage your ${storeBrand.name} ${storeBrand.accountDescription}`} />
 </svelte:head>
 
 <section class="section-wrap account-page">
   <header class="page-heading account-heading">
-    <div><p class="eyebrow">YOUR GOODFOLK ACCOUNT</p><h1>Your account<span class="wordmark-period">.</span></h1><p>Profile, delivery details, and every order in one place.</p></div>
+    <div><p class="eyebrow">YOUR {storeBrand.name.toUpperCase()} ACCOUNT</p><h1>Your account<span class="wordmark-period">.</span></h1><p>Profile, delivery details, and every order in one place.</p></div>
     <button class="text-button" type="button" onclick={signOut}>Sign out <span aria-hidden="true">↗</span></button>
   </header>
   {#if error}<div class="form-error account-alert" role="alert">{error}</div>{/if}

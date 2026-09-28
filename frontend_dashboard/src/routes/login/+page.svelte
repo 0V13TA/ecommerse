@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { supabase } from '$lib/supabase';
+  import { adminBrand } from '$lib/brand';
   let email = '';
   let password = '';
   let error = '';
@@ -29,10 +30,10 @@
   }
 </script>
 
-<svelte:head><title>Sign in · Northstar Admin</title></svelte:head>
+<svelte:head><title>Sign in · {adminBrand.name} Admin</title></svelte:head>
 <main class="login-page">
   <section class="login-card">
-    <a class="brand login-brand" href="/"><span class="brand-mark">N</span><span>northstar<small>COMMERCE ADMIN</small></span></a>
+    <a class="brand login-brand" href="/"><span class="brand-mark">{adminBrand.mark}</span><span>{adminBrand.name.toLowerCase()}<small>{adminBrand.descriptor.toUpperCase()}</small></span></a>
     <div class="login-intro"><div class="eyebrow">ADMINISTRATOR ACCESS</div><h1>Welcome back</h1><p>Sign in to manage your store operations.</p></div>
     <form on:submit={login}>
       <label for="email">Email address</label>
@@ -44,5 +45,5 @@
     </form>
     <div class="login-footer"><span class="secure-dot"></span> Protected with secure authentication</div>
   </section>
-  <div class="login-aside"><div class="aside-orb"></div><div class="aside-copy"><div class="eyebrow">YOUR BUSINESS, IN FOCUS</div><h2>Everything your store needs.<br /><em>All in one place.</em></h2><p>Thoughtful tools for the people who keep commerce moving.</p></div><div class="aside-caption">NORTHSTAR COMMERCE · ADMIN PORTAL</div></div>
+  <div class="login-aside"><div class="aside-orb"></div><div class="aside-copy"><div class="eyebrow">YOUR BUSINESS, IN FOCUS</div><h2>Everything your store needs.<br /><em>All in one place.</em></h2><p>Thoughtful tools for the people who keep commerce moving.</p></div><div class="aside-caption">{adminBrand.name.toUpperCase()} {adminBrand.descriptor.toUpperCase()} · ADMIN PORTAL</div></div>
 </main>
